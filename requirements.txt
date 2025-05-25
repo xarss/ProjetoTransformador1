@@ -1,0 +1,9 @@
+tqdm
+numpy
+pydub
+pandas
+librosa
+soundfile
+tensorflow
+scikit-image
+scikit-learn
