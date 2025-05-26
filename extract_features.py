@@ -1,13 +1,12 @@
 import os
 import shutil
-import time
 import zipfile
 import argparse
 import librosa
+import librosa.display
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from skimage.transform import resize
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser(description="Extract and save audio features and images.")
@@ -36,9 +35,8 @@ def clean_output():
         if os.path.exists(path):
             os.remove(path)
 
-    os.makedirs(os.path.join(IMAGE_DIR, 'mfcc'), exist_ok=True)
-    os.makedirs(os.path.join(IMAGE_DIR, 'lfcc'), exist_ok=True)
-    os.makedirs(os.path.join(IMAGE_DIR, 'logmel'), exist_ok=True)
+    for kind in ['mfcc', 'lfcc', 'logmel']:
+        os.makedirs(os.path.join(IMAGE_DIR, kind), exist_ok=True)
 
 def extract_mfcc(y, sr, n_mfcc=40, hop_length=256):
     return librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, hop_length=hop_length)
@@ -53,31 +51,35 @@ def extract_lfcc(y, sr, n_lfcc=40, hop_length=256):
     return librosa.feature.mfcc(S=power_db, sr=sr, n_mfcc=n_lfcc)
 
 def normalize_feature(x):
-    return (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-6)
+    norm = (x - np.min(x)) / (np.max(x) - np.min(x) + 1e-6)
+    if np.max(norm) < 0.05:
+        print("⚠️ Warning: low energy spectrogram.")
+    return norm
 
-def save_feature_image(feature, file_name, kind):
+def save_feature_image(feature, file_name, kind, sr=16000, hop_length=256):
     path = os.path.join(IMAGE_DIR, kind, f"{file_name}.png")
-    plt.figure(figsize=(2, 2))
-    plt.imshow(feature, aspect='auto', origin='lower', cmap='magma')
+    plt.figure(figsize=(8, 4), dpi=200)
+    librosa.display.specshow(feature, sr=sr, hop_length=hop_length,
+                              x_axis='time',
+                              y_axis='mel' if kind == 'logmel' else 'linear',
+                              cmap='magma')
     plt.axis('off')
     plt.tight_layout(pad=0)
-    plt.savefig(path, dpi=100, bbox_inches='tight', pad_inches=0)
+    plt.savefig(path, bbox_inches='tight', pad_inches=0)
     plt.close()
 
 def extract_and_save_all_features(y, sr, file_name):
     data = {}
-
-    for kind, extractor in zip(
-        ['mfcc', 'lfcc', 'logmel'],
-        [extract_mfcc, extract_lfcc, extract_logmel]
-    ):
-        feature = extractor(y, sr)
-        feature_mean = np.mean(feature, axis=1)
-        feature_norm = normalize_feature(feature)
-        feature_resized = resize(feature_norm, (64, 64), mode='reflect', anti_aliasing=True)
-        save_feature_image(feature_resized, file_name, kind)
-        data[kind] = feature_mean
-
+    for kind, extractor in zip(['mfcc', 'lfcc', 'logmel'], [extract_mfcc, extract_lfcc, extract_logmel]):
+        try:
+            feature = extractor(y, sr)
+            feature_mean = np.mean(feature, axis=1)
+            feature_norm = normalize_feature(feature)
+            save_feature_image(feature_norm, file_name, kind, sr=sr)
+            data[kind] = feature_mean
+        except Exception as e:
+            print(f"⚠️ Error processing {kind} for {file_name}: {e}")
+            data[kind] = np.zeros(40)
     return data
 
 def process_audio_row(row):
@@ -113,11 +115,14 @@ def zip_and_delete_images():
 
 def save_feature_csvs(data):
     for kind in ['mfcc', 'lfcc', 'logmel']:
-        df = pd.DataFrame([{
-            'file_name': d['file_name'],
-            'label': d['label'],
-            **{f"{kind}_{i+1}": val for i, val in enumerate(d[kind])}
-        } for d in data])
+        rows = []
+        for d in data:
+            rows.append({
+                'file_name': d['file_name'],
+                'label': d['label'],
+                **{f"{kind}_{i+1}": val for i, val in enumerate(d[kind])}
+            })
+        df = pd.DataFrame(rows)
         df.to_csv(CSV_PATHS[kind], index=False)
         print(f"Saved '{kind}' features in file '{CSV_PATHS[kind]}'")
 
@@ -131,7 +136,7 @@ protocol.columns = [
     "track", "team", "subset", "group"
 ]
 
-num_files = 10
+num_files = 2000
 processed_data = []
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -146,4 +151,4 @@ if processed_data:
     save_feature_csvs(processed_data)
     zip_and_delete_images()
 else:
-    print("⚠️ Nenhum dado processado.")
+    print("No data was processed")
