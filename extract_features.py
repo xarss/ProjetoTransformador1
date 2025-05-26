@@ -2,6 +2,7 @@ import os
 import shutil
 import time
 import zipfile
+import argparse
 import librosa
 import numpy as np
 import pandas as pd
@@ -9,8 +10,13 @@ from tqdm import tqdm
 from skimage.transform import resize
 import matplotlib.pyplot as plt
 
-AUDIO_DIR = 'C:/Users/Chico/Dev/PUC/DataScience/data-science/Data/flac/'
-PROTOCOL_PATH = 'Data/ASVspoof2021Protocol.txt'
+parser = argparse.ArgumentParser(description="Extract and save audio features and images.")
+parser.add_argument('--flac_dir', required=True, help='Path to the folder with .flac audio files')
+parser.add_argument('--protocol_file', required=True, help='Path to the ASVspoof protocol .txt file')
+args = parser.parse_args()
+
+AUDIO_DIR = args.flac_dir
+PROTOCOL_PATH = args.protocol_file
 OUTPUT_DIR = 'Data'
 IMAGE_DIR = os.path.join(OUTPUT_DIR, 'Images')
 ZIP_PATH = os.path.join(OUTPUT_DIR, 'images.zip')
@@ -125,9 +131,10 @@ protocol.columns = [
     "track", "team", "subset", "group"
 ]
 
-num_files = 100
+num_files = 10
 processed_data = []
 
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 for _, row in tqdm(protocol.iterrows(), total=num_files, desc="Extracting features"):
     if len(processed_data) >= num_files:
         break
